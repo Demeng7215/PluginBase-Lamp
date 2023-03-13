@@ -53,6 +53,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.BiConsumer;
 import java.util.function.Supplier;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.UnmodifiableView;
@@ -63,7 +64,6 @@ import revxrsal.commands.annotation.Description;
 import revxrsal.commands.annotation.Range;
 import revxrsal.commands.annotation.dynamic.AnnotationReplacer;
 import revxrsal.commands.autocomplete.AutoCompleter;
-import revxrsal.commands.command.ArgumentParser;
 import revxrsal.commands.command.ArgumentStack;
 import revxrsal.commands.command.CommandActor;
 import revxrsal.commands.command.CommandCategory;
@@ -71,7 +71,6 @@ import revxrsal.commands.command.CommandParameter;
 import revxrsal.commands.command.CommandPermission;
 import revxrsal.commands.command.ExecutableCommand;
 import revxrsal.commands.core.reflect.MethodCallerFactory;
-import revxrsal.commands.exception.ArgumentParseException;
 import revxrsal.commands.exception.CommandExceptionHandler;
 import revxrsal.commands.exception.DefaultExceptionHandler;
 import revxrsal.commands.exception.InvalidBooleanException;
@@ -87,6 +86,7 @@ import revxrsal.commands.orphan.Orphans;
 import revxrsal.commands.process.CommandCondition;
 import revxrsal.commands.process.ContextResolver;
 import revxrsal.commands.process.ContextResolverFactory;
+import revxrsal.commands.process.ParameterNamingStrategy;
 import revxrsal.commands.process.ParameterResolver;
 import revxrsal.commands.process.ParameterResolver.ParameterResolverContext;
 import revxrsal.commands.process.ParameterValidator;
@@ -100,7 +100,16 @@ import revxrsal.commands.util.ClassMap;
 import revxrsal.commands.util.Primitives;
 import revxrsal.commands.util.StackTraceSanitizer;
 
-public class BaseCommandHandler implements CommandHandler {
+/**
+ * A primitive, bare-bones implementation of a command handler. Use your platform's appropriate
+ * extension of this.
+ *
+ * <ul>
+ *     <li>Bukkit: BukkitCommandHandler</li>
+ * </ul>
+ */
+@ApiStatus.Internal
+public abstract class BaseCommandHandler implements CommandHandler {
 
   protected final Map<CommandPath, CommandExecutable> executables = new HashMap<>();
   protected final Map<CommandPath, BaseCommandCategory> categories = new HashMap<>();
@@ -115,17 +124,18 @@ public class BaseCommandHandler implements CommandHandler {
   private final Set<PermissionReader> permissionReaders = new HashSet<>();
   final Map<Class<?>, Set<AnnotationReplacer<?>>> annotationReplacers = new ClassMap<>();
   private MethodCallerFactory methodCallerFactory = MethodCallerFactory.defaultFactory();
-  private ArgumentParser argumentParser = ArgumentParser.QUOTES;
   private final WrappedExceptionHandler exceptionHandler = new WrappedExceptionHandler(
       DefaultExceptionHandler.INSTANCE);
   private StackTraceSanitizer sanitizer = StackTraceSanitizer.defaultSanitizer();
   String flagPrefix = "-";
   String switchPrefix = "-";
   CommandHelpWriter<?> helpWriter;
+  ParameterNamingStrategy parameterNamingStrategy = ParameterNamingStrategy.lowerCaseWithSpace();
   boolean failOnExtra = false;
   final List<CommandCondition> conditions = new ArrayList<>();
   private final Translator translator = BaseManager.getTranslator();
 
+  @SuppressWarnings("rawtypes")
   public BaseCommandHandler() {
     registerContextResolverFactory(new SenderContextResolverFactory(senderResolvers));
     registerContextResolverFactory(DependencyResolverFactory.INSTANCE);
@@ -185,6 +195,19 @@ public class BaseCommandHandler implements CommandHandler {
       }
     });
     registerAnnotationReplacer(Description.class, new LocalesAnnotationReplacer(this));
+  }
+
+  @Override
+  public @NotNull CommandHandler setParameterNamingStrategy(
+      @NotNull ParameterNamingStrategy strategy) {
+    notNull(strategy, "parameter naming strategy");
+    parameterNamingStrategy = strategy;
+    return this;
+  }
+
+  @Override
+  public @NotNull ParameterNamingStrategy getParameterNamingStrategy() {
+    return parameterNamingStrategy;
   }
 
   @Override
@@ -257,42 +280,6 @@ public class BaseCommandHandler implements CommandHandler {
   public @NotNull CommandHandler setMethodCallerFactory(@NotNull MethodCallerFactory factory) {
     notNull(factory, "method caller factory");
     methodCallerFactory = factory;
-    return this;
-  }
-
-  @Override
-  public @NotNull ArgumentParser getArgumentParser() {
-    return argumentParser;
-  }
-
-  @Override
-  public ArgumentStack parseArgumentsForCompletion(String... arguments)
-      throws ArgumentParseException {
-    String args = String.join(" ", arguments);
-    if (args.isEmpty()) {
-      return ArgumentStack.copy(EMPTY_TEXT);
-    }
-    return argumentParser.parse(args);
-  }
-
-  @Override
-  public ArgumentStack parseArguments(String... arguments) throws ArgumentParseException {
-    String args = String.join(" ", arguments);
-    if (args.isEmpty()) {
-      return ArgumentStack.empty();
-    }
-    return argumentParser.parse(args);
-  }
-
-  /**
-   * A collection that is returned for empty auto-completions.
-   */
-  private static final Collection<String> EMPTY_TEXT = Collections.singletonList("");
-
-  @Override
-  public BaseCommandHandler setArgumentParser(@NotNull ArgumentParser argumentParser) {
-    notNull(argumentParser, "argument parser");
-    this.argumentParser = argumentParser;
     return this;
   }
 
@@ -683,7 +670,7 @@ public class BaseCommandHandler implements CommandHandler {
   public <T> @NotNull Optional<@Nullable T> dispatch(@NotNull CommandActor actor,
       @NotNull String commandInput) {
     try {
-      return dispatch(actor, parseArguments(commandInput));
+      return dispatch(actor, ArgumentStack.parse(commandInput));
     } catch (Throwable t) {
       getExceptionHandler().handleException(t, actor);
       return Optional.empty();

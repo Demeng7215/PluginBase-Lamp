@@ -31,7 +31,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.function.Supplier;
-import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.UnmodifiableView;
@@ -41,7 +40,6 @@ import revxrsal.commands.annotation.Switch;
 import revxrsal.commands.annotation.dynamic.AnnotationReplacer;
 import revxrsal.commands.annotation.dynamic.Annotations;
 import revxrsal.commands.autocomplete.AutoCompleter;
-import revxrsal.commands.command.ArgumentParser;
 import revxrsal.commands.command.ArgumentStack;
 import revxrsal.commands.command.CommandActor;
 import revxrsal.commands.command.CommandCategory;
@@ -49,7 +47,6 @@ import revxrsal.commands.command.CommandPermission;
 import revxrsal.commands.command.ExecutableCommand;
 import revxrsal.commands.core.CommandPath;
 import revxrsal.commands.core.reflect.MethodCallerFactory;
-import revxrsal.commands.exception.ArgumentParseException;
 import revxrsal.commands.exception.CommandExceptionHandler;
 import revxrsal.commands.exception.TooManyArgumentsException;
 import revxrsal.commands.help.CommandHelp;
@@ -57,6 +54,7 @@ import revxrsal.commands.help.CommandHelpWriter;
 import revxrsal.commands.process.CommandCondition;
 import revxrsal.commands.process.ContextResolver;
 import revxrsal.commands.process.ContextResolverFactory;
+import revxrsal.commands.process.ParameterNamingStrategy;
 import revxrsal.commands.process.ParameterValidator;
 import revxrsal.commands.process.PermissionReader;
 import revxrsal.commands.process.ResponseHandler;
@@ -114,54 +112,6 @@ public interface CommandHandler {
     @NotNull CommandHandler setMethodCallerFactory(@NotNull MethodCallerFactory factory);
 
     /**
-     * Returns the {@link ArgumentParser} responsible for controlling
-     * the logic of parsing strings.
-     *
-     * @return The argument parser.
-     */
-    @Deprecated
-    @ApiStatus.ScheduledForRemoval(inVersion = "3.1.4")
-    @NotNull ArgumentParser getArgumentParser();
-
-    /**
-     * Parses the string and returns an {@link ArgumentStack} for it. This
-     * method behaves exactly like {@link #parseArguments(String[])}, however
-     * it returns a singleton list of an empty string when the text is empty,
-     * suitable for auto-completion.
-     *
-     * @param arguments Strings to parse. These will get joined
-     *                  to a string separated by spaces.
-     * @return The argument stack.
-     * @deprecated Use {@link ArgumentStack#parseForAutoCompletion}
-     */
-    @Deprecated
-    @ApiStatus.ScheduledForRemoval(inVersion = "3.1.4")
-    ArgumentStack parseArgumentsForCompletion(String... arguments) throws ArgumentParseException;
-
-    /**
-     * Parses the string array and returns an {@link ArgumentStack} for it.
-     *
-     * @param arguments String array to parse. This will be joined as a single string
-     *                  with spaces.
-     * @return The argument stack.
-     * @see ArgumentParser#parse(String).
-     * @deprecated Use {@link ArgumentStack#parse}
-     */
-    @Deprecated
-    @ApiStatus.ScheduledForRemoval(inVersion = "3.1.4")
-    ArgumentStack parseArguments(String... arguments) throws ArgumentParseException;
-
-    /**
-     * Sets the {@link ArgumentParser} responsible for controlling
-     * the logic of parsing strings.
-     *
-     * @param parser The argument parser to use.
-     */
-    @Deprecated
-    @ApiStatus.ScheduledForRemoval(inVersion = "3.1.4")
-    CommandHandler setArgumentParser(@NotNull ArgumentParser parser);
-
-    /**
      * Sets the {@link CommandExceptionHandler} to use for handling any exceptions
      * that are thrown from the command.
      * <p>
@@ -215,6 +165,23 @@ public interface CommandHandler {
      * @see CommandHelp
      */
     @NotNull <T> CommandHandler setHelpWriter(@NotNull CommandHelpWriter<T> helpWriter);
+
+    /**
+     * Sets the parameter naming strategy. By default, this
+     * is {@link ParameterNamingStrategy#lowerCaseWithSpace()}
+     *
+     * @param strategy Strategy to use
+     * @return This command handler
+     * @see ParameterNamingStrategy
+     */
+    @NotNull CommandHandler setParameterNamingStrategy(@NotNull ParameterNamingStrategy strategy);
+
+    /**
+     * Returns the parameter naming strategy
+     *
+     * @return The current parameter naming strategy
+     */
+    @NotNull ParameterNamingStrategy getParameterNamingStrategy();
 
     /**
      * Disables stacktrace sanitization.

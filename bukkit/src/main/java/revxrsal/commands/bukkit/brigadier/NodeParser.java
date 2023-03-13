@@ -23,202 +23,182 @@
  */
 package revxrsal.commands.bukkit.brigadier;
 
+import com.mojang.brigadier.LiteralMessage;
+import com.mojang.brigadier.Message;
+import com.mojang.brigadier.arguments.ArgumentType;
+import com.mojang.brigadier.suggestion.SuggestionProvider;
+import revxrsal.commands.CommandHandler;
+import revxrsal.commands.bukkit.BukkitBrigadier;
+import revxrsal.commands.bukkit.core.BukkitHandler;
+import revxrsal.commands.command.*;
+import revxrsal.commands.command.trait.PermissionHolder;
+import revxrsal.commands.core.EitherParameter;
+import revxrsal.commands.exception.ArgumentParseException;
+import revxrsal.commands.util.Either;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
 import static com.mojang.brigadier.builder.LiteralArgumentBuilder.literal;
 import static com.mojang.brigadier.builder.RequiredArgumentBuilder.argument;
 import static java.util.Collections.singletonList;
 import static revxrsal.commands.autocomplete.SuggestionProvider.EMPTY;
 import static revxrsal.commands.util.Collections.listOf;
 
-import com.mojang.brigadier.LiteralMessage;
-import com.mojang.brigadier.Message;
-import com.mojang.brigadier.arguments.ArgumentType;
-import com.mojang.brigadier.suggestion.SuggestionProvider;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.function.Predicate;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
-import revxrsal.commands.CommandHandler;
-import revxrsal.commands.bukkit.BukkitBrigadier;
-import revxrsal.commands.bukkit.core.BukkitHandler;
-import revxrsal.commands.command.ArgumentStack;
-import revxrsal.commands.command.CommandActor;
-import revxrsal.commands.command.CommandCategory;
-import revxrsal.commands.command.CommandParameter;
-import revxrsal.commands.command.ExecutableCommand;
-import revxrsal.commands.command.trait.PermissionHolder;
-import revxrsal.commands.core.EitherParameter;
-import revxrsal.commands.exception.ArgumentParseException;
-import revxrsal.commands.util.Either;
-
 final class NodeParser {
 
-  private final BukkitBrigadier brigadier;
+    private final BukkitBrigadier brigadier;
 
-  public NodeParser(BukkitBrigadier brigadier) {
-    this.brigadier = brigadier;
-  }
-
-  public List<Node> parse(CommandHandler handler) {
-    List<Node> nodes = new ArrayList<>();
-    for (CommandCategory category : handler.getCategories().values()) {
-      if (category.getPath().isRoot()) {
-        nodes.add(create(category));
-      }
-    }
-    for (ExecutableCommand command : handler.getCommands().values()) {
-      if (command.getPath().isRoot()) {
-        nodes.add(create(command));
-      }
-    }
-    return nodes;
-  }
-
-  private List<Node> createNodes(CommandParameter parameter) {
-    if (parameter.isSwitch()) {
-      String switchLiteral =
-          parameter.getCommandHandler().getSwitchPrefix() + parameter.getSwitchName();
-      return singletonList(new Node(literal(switchLiteral)));
-    }
-    if (parameter.getType() == Either.class) {
-      EitherParameter[] either = EitherParameter.create(parameter);
-      List<Node> first = createNodes(either[0]);
-      List<Node> second = createNodes(either[1]);
-      return Stream.concat(first.stream(), second.stream()).collect(Collectors.toList());
-    }
-    ExecutableCommand command = parameter.getDeclaringCommand();
-
-    ArgumentType<?> argumentType = brigadier.getArgumentType(parameter);
-    boolean isLast = parameter.getCommandIndex() == command.getValueParameters().size() - 1;
-
-    Node node = new Node(argument(parameter.getName(), argumentType));
-    node.require(generateRequirement(parameter));
-    node.suggest(createSuggestionProvider(brigadier, parameter));
-    if (isLast) {
-      node.canBeExecuted(brigadier);
-    }
-    return singletonList(node);
-  }
-
-  public Node create(CommandCategory category) {
-    Node node = new Node(literal(category.getName()));
-    node.require(generateRequirement(category));
-
-    for (CommandCategory subcategory : category.getCategories().values()) {
-      Node subNode = create(subcategory);
-      node.addChild(subNode);
+    public NodeParser(BukkitBrigadier brigadier) {
+        this.brigadier = brigadier;
     }
 
-    for (ExecutableCommand subcommands : category.getCommands().values()) {
-      Node subNode = create(subcommands);
-      node.addChild(subNode);
-    }
-
-    if (category.getDefaultAction() != null) {
-      addExecutables(category.getDefaultAction(), node);
-    }
-
-    return node;
-  }
-
-  private Predicate<Object> generateRequirement(PermissionHolder holder) {
-    return sender -> holder.getPermission().canExecute(brigadier.wrapSource(sender));
-  }
-
-  public Node create(ExecutableCommand command) {
-    Node node = new Node(literal(command.getName()));
-    node.require(generateRequirement(command));
-    addExecutables(command, node);
-    return node;
-  }
-
-  public void addExecutables(ExecutableCommand command, Node targetNode) {
-    if (command.getValueParameters().isEmpty()) {
-      targetNode.canBeExecuted(brigadier);
-      return;
-    }
-
-    addParameterNodes(command, targetNode);
-  }
-
-  private void addParameterNodes(ExecutableCommand command, Node targetNode) {
-    ArrayList<Node> lastNodes = (ArrayList<Node>) listOf(targetNode);
-
-    List<CommandParameter> parameters = new ArrayList<>(command.getValueParameters().values());
-
-    for (CommandParameter parameter : parameters) {
-      if (parameter.isFlag()) {
-        addFlagParameter(parameter, lastNodes);
-        continue;
-      }
-      if (parameter.isOptional() || parameter.isSwitch()) {
-        lastNodes.forEach(lastNode -> lastNode.canBeExecuted(brigadier));
-      }
-
-      List<Node> paramNodes = createNodes(parameter);
-      if (paramNodes == null || paramNodes.isEmpty()) {
-        continue;
-      }
-      lastNodes.forEach(lastNode -> lastNode.addChildren(paramNodes));
-
-      lastNodes.clear();
-      lastNodes.addAll(paramNodes);
-    }
-  }
-
-  private void addFlagParameter(CommandParameter parameter, ArrayList<Node> lastNodes) {
-    Node flagLiteral = new Node(
-        literal(parameter.getCommandHandler().getFlagPrefix() + parameter.getFlagName()));
-    flagLiteral.require(generateRequirement(parameter));
-
-    if (parameter.isOptional()) {
-      lastNodes.forEach(lastNode -> lastNode.canBeExecuted(brigadier));
-    }
-
-    List<Node> flagNodes = createNodes(parameter);
-    flagLiteral.addChildren(flagNodes);
-
-    lastNodes.forEach(lastNode -> lastNode.addChild(flagLiteral));
-    lastNodes.clear();
-
-    lastNodes.addAll(flagNodes);
-  }
-
-  private static SuggestionProvider<Object> createSuggestionProvider(
-      BukkitBrigadier brigadier,
-      CommandParameter parameter
-  ) {
-    if (parameter.getSuggestionProvider() == EMPTY) {
-      return null;
-    }
-    if (brigadier.isNativePlayerCompletionEnabled() &&
-        parameter.getSuggestionProvider() == BukkitHandler.playerSuggestionProvider) {
-      return null;
-    }
-    return (context, builder) -> {
-      try {
-        CommandActor actor = brigadier.wrapSource(context.getSource());
-        String tooltipMessage =
-            parameter.getDescription() == null ? parameter.getName() : parameter.getDescription();
-        Message tooltip = new LiteralMessage(tooltipMessage);
-        String input = context.getInput();
-        try {
-          ArgumentStack args = parameter.getCommandHandler().parseArgumentsForCompletion(
-              input.startsWith("/") ? input.substring(1) : input
-          );
-          parameter.getSuggestionProvider()
-              .getSuggestions(args, actor, parameter.getDeclaringCommand())
-              .stream()
-              .filter(c -> c.toLowerCase().startsWith(args.getLast().toLowerCase()))
-              .sorted(String.CASE_INSENSITIVE_ORDER)
-              .distinct()
-              .forEach(c -> builder.suggest(c, tooltip));
-        } catch (ArgumentParseException ignore) {
+    public List<Node> parse(CommandHandler handler) {
+        List<Node> nodes = new ArrayList<>();
+        for (CommandCategory category : handler.getCategories().values()) {
+            if (category.getPath().isRoot()) nodes.add(create(category));
         }
-      } catch (Throwable e) {
-        e.printStackTrace();
-      }
-      return builder.buildFuture();
-    };
-  }
+        for (ExecutableCommand command : handler.getCommands().values()) {
+            if (command.getPath().isRoot()) nodes.add(create(command));
+        }
+        return nodes;
+    }
+
+    private List<Node> createNodes(CommandParameter parameter) {
+        if (parameter.isSwitch()) {
+            String switchLiteral = parameter.getCommandHandler().getSwitchPrefix() + parameter.getSwitchName();
+            return singletonList(new Node(literal(switchLiteral)));
+        }
+        if (parameter.getType() == Either.class) {
+            EitherParameter[] either = EitherParameter.create(parameter);
+            List<Node> first = createNodes(either[0]);
+            List<Node> second = createNodes(either[1]);
+            return Stream.concat(first.stream(), second.stream()).collect(Collectors.toList());
+        }
+        ExecutableCommand command = parameter.getDeclaringCommand();
+
+        ArgumentType<?> argumentType = brigadier.getArgumentType(parameter);
+        boolean isLast = parameter.getCommandIndex() == command.getValueParameters().size() - 1;
+
+        Node node = new Node(argument(parameter.getName(), argumentType));
+        node.require(generateRequirement(parameter));
+        node.suggest(createSuggestionProvider(brigadier, parameter));
+        if (isLast)
+            node.canBeExecuted(brigadier);
+        return singletonList(node);
+    }
+
+    public Node create(CommandCategory category) {
+        Node node = new Node(literal(category.getName()));
+        node.require(generateRequirement(category));
+
+        for (CommandCategory subcategory : category.getCategories().values()) {
+            Node subNode = create(subcategory);
+            node.addChild(subNode);
+        }
+
+        for (ExecutableCommand subcommands : category.getCommands().values()) {
+            Node subNode = create(subcommands);
+            node.addChild(subNode);
+        }
+
+        if (category.getDefaultAction() != null)
+            addExecutables(category.getDefaultAction(), node);
+
+        return node;
+    }
+
+    private Predicate<Object> generateRequirement(PermissionHolder holder) {
+        return sender -> holder.getPermission().canExecute(brigadier.wrapSource(sender));
+    }
+
+    public Node create(ExecutableCommand command) {
+        Node node = new Node(literal(command.getName()));
+        node.require(generateRequirement(command));
+        addExecutables(command, node);
+        return node;
+    }
+
+    public void addExecutables(ExecutableCommand command, Node targetNode) {
+        if (command.getValueParameters().isEmpty()) {
+            targetNode.canBeExecuted(brigadier);
+            return;
+        }
+
+        addParameterNodes(command, targetNode);
+    }
+
+    private void addParameterNodes(ExecutableCommand command, Node targetNode) {
+        ArrayList<Node> lastNodes = (ArrayList<Node>) listOf(targetNode);
+
+        List<CommandParameter> parameters = new ArrayList<>(command.getValueParameters().values());
+
+        for (CommandParameter parameter : parameters) {
+            if (parameter.isFlag()) {
+                addFlagParameter(parameter, lastNodes);
+                continue;
+            }
+            if (parameter.isOptional() || parameter.isSwitch())
+                lastNodes.forEach(lastNode -> lastNode.canBeExecuted(brigadier));
+
+            List<Node> paramNodes = createNodes(parameter);
+            if (paramNodes == null || paramNodes.isEmpty()) continue;
+            lastNodes.forEach(lastNode -> lastNode.addChildren(paramNodes));
+
+            lastNodes.clear();
+            lastNodes.addAll(paramNodes);
+        }
+    }
+
+    private void addFlagParameter(CommandParameter parameter, ArrayList<Node> lastNodes) {
+        Node flagLiteral = new Node(literal(parameter.getCommandHandler().getFlagPrefix() + parameter.getFlagName()));
+        flagLiteral.require(generateRequirement(parameter));
+
+        if (parameter.isOptional())
+            lastNodes.forEach(lastNode -> lastNode.canBeExecuted(brigadier));
+
+        List<Node> flagNodes = createNodes(parameter);
+        flagLiteral.addChildren(flagNodes);
+
+        lastNodes.forEach(lastNode -> lastNode.addChild(flagLiteral));
+        lastNodes.clear();
+
+        lastNodes.addAll(flagNodes);
+    }
+
+    private static SuggestionProvider<Object> createSuggestionProvider(
+            BukkitBrigadier brigadier,
+            CommandParameter parameter
+    ) {
+        if (parameter.getSuggestionProvider() == EMPTY)
+            return null;
+        if (brigadier.isNativePlayerCompletionEnabled() &&
+                parameter.getSuggestionProvider() == BukkitHandler.playerSuggestionProvider)
+            return null;
+        return (context, builder) -> {
+            try {
+                CommandActor actor = brigadier.wrapSource(context.getSource());
+                String tooltipMessage = parameter.getDescription() == null ? parameter.getName() : parameter.getDescription();
+                Message tooltip = new LiteralMessage(tooltipMessage);
+                String input = context.getInput();
+                try {
+                    ArgumentStack args = ArgumentStack.parseForAutoCompletion(
+                            input.startsWith("/") ? input.substring(1) : input
+                    );
+                    parameter.getSuggestionProvider().getSuggestions(args, actor, parameter.getDeclaringCommand())
+                            .stream()
+                            .filter(c -> c.toLowerCase().startsWith(args.getLast().toLowerCase()))
+                            .sorted(String.CASE_INSENSITIVE_ORDER)
+                            .distinct()
+                            .forEach(c -> builder.suggest(c, tooltip));
+                } catch (ArgumentParseException ignore) {}
+            } catch (Throwable e) {
+                e.printStackTrace();
+            }
+            return builder.buildFuture();
+        };
+    }
 }

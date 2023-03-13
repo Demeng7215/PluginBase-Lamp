@@ -25,72 +25,74 @@
 
 package revxrsal.commands.bukkit.brigadier;
 
+import org.bukkit.plugin.Plugin;
+
 import java.util.Objects;
 import java.util.function.Function;
-import org.bukkit.plugin.Plugin;
 
 /**
  * Factory for obtaining instances of {@link Commodore}.
  */
 public final class CommodoreProvider {
 
-  private CommodoreProvider() {
-    throw new AssertionError();
-  }
-
-  private static final Function<Plugin, Commodore> PROVIDER = checkSupported();
-
-  private static Function<Plugin, Commodore> checkSupported() {
-    try {
-      Class.forName("com.mojang.brigadier.CommandDispatcher");
-    } catch (Throwable e) {
-      printDebugInfo(e);
-      return null;
+    private CommodoreProvider() {
+        throw new AssertionError();
     }
 
-    // try the reflection impl
-    try {
-      ReflectionCommodore.ensureSetup();
-      return ReflectionCommodore::new;
-    } catch (Throwable e) {
-      printDebugInfo(e);
+    private static final Function<Plugin, Commodore> PROVIDER = checkSupported();
+
+    @SuppressWarnings("Convert2MethodRef")
+    private static Function<Plugin, Commodore> checkSupported() {
+        try {
+            Class.forName("com.mojang.brigadier.CommandDispatcher");
+        } catch (Throwable e) {
+            printDebugInfo(e);
+            return null;
+        }
+
+        // try the reflection impl
+        try {
+            ReflectionCommodore.ensureSetup();
+            return plugin -> new ReflectionCommodore(plugin);
+        } catch (Throwable e) {
+            printDebugInfo(e);
+        }
+
+        // try the paper impl
+        try {
+            PaperCommodore.ensureSetup();
+            return plugin -> new PaperCommodore(plugin);
+        } catch (Throwable e) {
+            printDebugInfo(e);
+        }
+
+        return null;
     }
 
-    // try the paper impl
-    try {
-      PaperCommodore.ensureSetup();
-      return PaperCommodore::new;
-    } catch (Throwable e) {
-      printDebugInfo(e);
+    private static void printDebugInfo(Throwable e) {
+        if (System.getProperty("commodore.debug") != null) {
+            System.err.println("Exception while initialising commodore:");
+            e.printStackTrace(System.err);
+        }
     }
 
-    return null;
-  }
-
-  private static void printDebugInfo(Throwable e) {
-    if (System.getProperty("commodore.debug") != null) {
-      System.err.println("Exception while initialising commodore:");
-      e.printStackTrace(System.err);
+    /**
+     * Checks to see if the Brigadier command system is supported by the server.
+     *
+     * @return true if commodore is supported.
+     */
+    public static boolean isSupported() {
+        return PROVIDER != null;
     }
-  }
 
-  /**
-   * Checks to see if the Brigadier command system is supported by the server.
-   *
-   * @return true if commodore is supported.
-   */
-  public static boolean isSupported() {
-    return PROVIDER != null;
-  }
-
-  /**
-   * Obtains a {@link Commodore} instance for the given plugin.
-   *
-   * @param plugin the plugin
-   * @return the commodore instance
-   */
-  public static Commodore getCommodore(Plugin plugin) {
-    Objects.requireNonNull(plugin, "plugin");
-    return PROVIDER == null ? null : PROVIDER.apply(plugin);
-  }
+    /**
+     * Obtains a {@link Commodore} instance for the given plugin.
+     *
+     * @param plugin the plugin
+     * @return the commodore instance
+     */
+    public static Commodore getCommodore(Plugin plugin) {
+        Objects.requireNonNull(plugin, "plugin");
+        return PROVIDER == null ? null : PROVIDER.apply(plugin);
+    }
 }

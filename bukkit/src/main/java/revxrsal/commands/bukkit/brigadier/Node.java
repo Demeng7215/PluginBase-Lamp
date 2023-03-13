@@ -38,67 +38,64 @@ import revxrsal.commands.command.ArgumentStack;
 import revxrsal.commands.command.CommandActor;
 
 /**
- * Represents a node in the Brigadier tree. Since Brigadier only allows modifying elements inside
- * builders, this one captures already-built instances and modifies it safely using reflection to
- * avoid bugs from immutability.
+ * Represents a node in the Brigadier tree. Since Brigadier only allows modifying elements
+ * inside builders, this one captures already-built instances and modifies it safely
+ * using reflection to avoid bugs from immutability.
  */
-@SuppressWarnings("rawtypes")
-final class Node {
+@SuppressWarnings("rawtypes") final class Node {
 
-  private final CommandNode<?> node;
+    private final CommandNode<?> node;
 
-  public Node(ArgumentBuilder<?, ?> node) {
-    this.node = node.build();
-  }
-
-  public Node(CommandNode node) {
-    this.node = node;
-  }
-
-  public void addChild(@NotNull Node node) {
-    notNull(node, "node");
-    this.node.addChild((CommandNode) node.node);
-  }
-
-  public void addChildren(@NotNull List<Node> nodes) {
-    notNull(nodes, "nodes");
-    for (Node node : nodes) {
-      this.node.addChild((CommandNode) node.node);
+    public Node(ArgumentBuilder<?, ?> node) {
+        this.node = node.build();
     }
-  }
 
-  public void action(Command<?> command) {
-    NodeReflection.setCommand(node, (Command) command);
-  }
-
-  public void canBeExecuted(BukkitBrigadier brigadier) {
-    action(a -> {
-      String input = a.getInput();
-      ArgumentStack args = brigadier.getCommandHandler().parseArgumentsForCompletion(
-          input.startsWith("/") ? input.substring(1) : input
-      );
-      CommandActor actor = brigadier.wrapSource(a.getSource());
-      try {
-        brigadier.getCommandHandler().dispatch(actor, args);
-      } catch (Throwable t) {
-        brigadier.getCommandHandler().getExceptionHandler().handleException(t, actor);
-      }
-      return Command.SINGLE_SUCCESS;
-    });
-  }
-
-  public void require(Predicate<Object> requirement) {
-    NodeReflection.setRequirement(node, (Predicate) requirement);
-  }
-
-  public void suggest(SuggestionProvider provider) {
-    if (!(node instanceof ArgumentCommandNode)) {
-      throw new IllegalArgumentException("Not an argument node.");
+    public Node(CommandNode node) {
+        this.node = node;
     }
-    NodeReflection.setSuggestionProvider(((ArgumentCommandNode) node), provider);
-  }
 
-  public <T extends CommandNode<?>> T getNode() {
-    return (T) node;
-  }
+    public void addChild(@NotNull Node node) {
+        notNull(node, "node");
+        this.node.addChild((CommandNode) node.node);
+    }
+
+    public void addChildren(@NotNull List<Node> nodes) {
+        notNull(nodes, "nodes");
+        for (Node node : nodes)
+            this.node.addChild((CommandNode) node.node);
+    }
+
+    public void action(Command<?> command) {
+        NodeReflection.setCommand(node, (Command) command);
+    }
+
+    public void canBeExecuted(BukkitBrigadier brigadier) {
+        action(a -> {
+            String input = a.getInput();
+            ArgumentStack args = ArgumentStack.parseForAutoCompletion(
+                    input.startsWith("/") ? input.substring(1) : input
+            );
+            CommandActor actor = brigadier.wrapSource(a.getSource());
+            try {
+                brigadier.getCommandHandler().dispatch(actor, args);
+            } catch (Throwable t) {
+                brigadier.getCommandHandler().getExceptionHandler().handleException(t, actor);
+            }
+            return Command.SINGLE_SUCCESS;
+        });
+    }
+
+    public void require(Predicate<Object> requirement) {
+        NodeReflection.setRequirement(node, (Predicate) requirement);
+    }
+
+    public void suggest(SuggestionProvider provider) {
+        if (!(node instanceof ArgumentCommandNode))
+            throw new IllegalArgumentException("Not an argument node.");
+        NodeReflection.setSuggestionProvider(((ArgumentCommandNode) node), provider);
+    }
+
+    public <T extends CommandNode<?>> T getNode() {
+        return (T) node;
+    }
 }

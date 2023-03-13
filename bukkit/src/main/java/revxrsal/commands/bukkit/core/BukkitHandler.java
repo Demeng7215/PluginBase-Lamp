@@ -29,7 +29,7 @@ import org.bukkit.entity.HumanEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.jetbrains.annotations.ApiStatus.Internal;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import revxrsal.commands.CommandHandler;
@@ -54,7 +54,7 @@ import revxrsal.commands.core.CommandPath;
 import revxrsal.commands.exception.EnumNotFoundException;
 import revxrsal.commands.util.Primitives;
 
-@Internal
+@ApiStatus.Internal
 public final class BukkitHandler extends BaseCommandHandler implements BukkitCommandHandler {
 
   public static final SuggestionProvider playerSuggestionProvider = (args, sender, command) -> Bukkit.getOnlinePlayers()
@@ -214,13 +214,19 @@ public final class BukkitHandler extends BaseCommandHandler implements BukkitCom
 
   private @SneakyThrows void createPluginCommand(String name, @Nullable String description,
       @Nullable String usage) {
-    PluginCommand cmd = COMMAND_CONSTRUCTOR.newInstance(name, plugin);
-    COMMAND_MAP.register(plugin.getName(), cmd);
+    PluginCommand cmd = ((JavaPlugin) plugin).getCommand(name);
+    if (cmd == null) {
+      cmd = COMMAND_CONSTRUCTOR.newInstance(name, plugin);
+      COMMAND_MAP.register(plugin.getName(), cmd);
+    }
     BukkitCommandExecutor executor = new BukkitCommandExecutor(this);
     cmd.setExecutor(executor);
     cmd.setTabCompleter(executor);
-    cmd.setDescription(description == null ? "" : description);
-    if (usage != null) {
+
+    if (cmd.getDescription().isEmpty() && description != null) {
+      cmd.setDescription(description);
+    }
+    if (cmd.getUsage().isEmpty() && usage != null) {
       cmd.setUsage(usage);
     }
   }

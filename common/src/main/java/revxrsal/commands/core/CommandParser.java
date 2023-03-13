@@ -23,45 +23,11 @@
  */
 package revxrsal.commands.core;
 
-import static java.util.Collections.addAll;
-import static java.util.Collections.emptyList;
-import static java.util.stream.Collectors.toMap;
-import static revxrsal.commands.util.Collections.listOf;
-import static revxrsal.commands.util.Strings.getName;
-import static revxrsal.commands.util.Strings.splitBySpace;
-
-import java.lang.annotation.Annotation;
-import java.lang.reflect.Method;
-import java.lang.reflect.Parameter;
-import java.lang.reflect.ParameterizedType;
-import java.lang.reflect.Type;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.StringJoiner;
-import java.util.concurrent.CompletionStage;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.Supplier;
-import java.util.stream.Collectors;
 import lombok.SneakyThrows;
 import org.jetbrains.annotations.NotNull;
 import revxrsal.commands.CommandHandler;
-import revxrsal.commands.annotation.Command;
-import revxrsal.commands.annotation.Default;
-import revxrsal.commands.annotation.DefaultFor;
-import revxrsal.commands.annotation.Description;
-import revxrsal.commands.annotation.Flag;
 import revxrsal.commands.annotation.Optional;
-import revxrsal.commands.annotation.SecretCommand;
-import revxrsal.commands.annotation.Single;
-import revxrsal.commands.annotation.Subcommand;
-import revxrsal.commands.annotation.Switch;
-import revxrsal.commands.annotation.Usage;
+import revxrsal.commands.annotation.*;
 import revxrsal.commands.command.ArgumentStack;
 import revxrsal.commands.command.CommandParameter;
 import revxrsal.commands.command.CommandPermission;
@@ -76,6 +42,24 @@ import revxrsal.commands.process.PermissionReader;
 import revxrsal.commands.process.ResponseHandler;
 import revxrsal.commands.util.Preconditions;
 import revxrsal.commands.util.Primitives;
+
+import java.lang.annotation.Annotation;
+import java.lang.reflect.Method;
+import java.lang.reflect.Parameter;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
+import java.util.*;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
+import java.util.stream.Collectors;
+
+import static java.util.Collections.addAll;
+import static java.util.Collections.emptyList;
+import static java.util.stream.Collectors.toMap;
+import static revxrsal.commands.util.Collections.listOf;
+import static revxrsal.commands.util.Strings.getOverriddenName;
+import static revxrsal.commands.util.Strings.splitBySpace;
 
 /**
  * Handles the parsing logic for commands
@@ -125,7 +109,6 @@ final class CommandParser {
     @SneakyThrows
     public static void parse(@NotNull BaseCommandHandler handler, @NotNull Class<?> container, @NotNull Object boundTarget) {
         Map<CommandPath, BaseCommandCategory> categories = handler.categories;
-        Map<CommandPath, CommandExecutable> subactions = new HashMap<>();
         for (Method method : getAllMethods(container)) {
             /* Parse annotations on a method */
             AnnotationReader reader = AnnotationReader.create(handler, method);
@@ -155,21 +138,34 @@ final class CommandParser {
             int id = COMMAND_ID.getAndIncrement();
 
             /* Check if the command is default, and if so, generate a path for it */
-            boolean isDefault = reader.contains(Default.class) || reader.contains(DefaultFor.class);
-            String[] defPath = reader.get(DefaultFor.class, DefaultFor::value);
-            List<CommandPath> defaultPaths = defPath == null ? emptyList() : Arrays.stream(defPath)
-                    .map(CommandPath::parse).collect(Collectors.toList());
-            paths.forEach(path -> {
-                for (BaseCommandCategory category : generateCategories(handler, isDefault, path)) {
+            String[] defPaths = reader.get(DefaultFor.class, DefaultFor::value);
+            List<CommandPath> defaultPaths = defPaths == null ? emptyList() : Arrays.stream(defPaths)
+                    .map(CommandPath::parse)
+                    .collect(Collectors.toList());
+            boolean isDefault = !defaultPaths.isEmpty();
+
+            /* Generate categories for default paths if not created already */
+            for (CommandPath defaultPath : defaultPaths) {
+                for (BaseCommandCategory category : generateCategoriesForPath(handler, true, defaultPath)) {
                     categories.putIfAbsent(category.path, category);
                 }
-                List<CommandPath> defaultPathAndNormalPath = new ArrayList<>();
-                defaultPathAndNormalPath.add(path);
-                defaultPathAndNormalPath.addAll(defaultPaths);
-                for (CommandPath p : defaultPathAndNormalPath) {
+            }
+
+            paths.forEach(path -> {
+
+                /* Create categories beforehand, so we can insert commands into them with no problems */
+                for (BaseCommandCategory category : generateCategoriesForPath(handler, isDefault, path)) {
+                    categories.putIfAbsent(category.path, category);
+                }
+
+                Set<CommandPath> defaultPathsAndNormalPath = new HashSet<>();
+                defaultPathsAndNormalPath.add(path);
+                defaultPathsAndNormalPath.addAll(defaultPaths);
+                for (CommandPath p : defaultPathsAndNormalPath) {
                     boolean registerAsDefault = defaultPaths.contains(p);
                     CommandExecutable executable = new CommandExecutable();
-                    if (!registerAsDefault) categories.remove(p); // prevent duplication.
+                    if (!registerAsDefault)
+                        categories.remove(p); // prevent having a category and command with the same path
                     executable.name = p.getLast();
                     executable.id = id;
                     executable.handler = handler;
@@ -189,22 +185,21 @@ final class CommandParser {
                             .filter(c -> c.getCommandIndex() != -1)
                             .collect(toMap(CommandParameter::getCommandIndex, c -> c));
                     executable.usage = reader.get(Usage.class, Usage::value, () -> generateUsage(executable));
-                    if (registerAsDefault)
-                        subactions.put(p, executable);
-                    else
+                    if (!registerAsDefault) {
                         putOrError(handler.executables, p, executable, "A command with path '" + p.toRealString() + "' already exists!");
+                    }
                 }
             });
         }
-
-        subactions.forEach((path, subaction) -> {
-            BaseCommandCategory cat = categories.get(path);
-            if (cat != null) { // should never be null but let's just do that
-                cat.defaultAction = subaction;
-            }
-        });
     }
 
+    /**
+     * Synthesizes a {@link Command} annotation for orphan commands that contains information
+     * generated at runtime
+     *
+     * @param boundTarget Target to inject for
+     * @param reader      Reader to add
+     */
     private static void insertCommandPath(OrphanRegistry boundTarget, AnnotationReader reader) {
         List<CommandPath> paths = boundTarget.getParentPaths();
         String[] pathsArray = paths.stream().map(CommandPath::toRealString).toArray(String[]::new);
@@ -221,6 +216,13 @@ final class CommandParser {
         });
     }
 
+    /**
+     * Finds all {@link Method}s defined by a class, including private ones
+     * and ones that are inherited from classes.
+     *
+     * @param c Class to get for
+     * @return A list of all methods
+     */
     private static Set<Method> getAllMethods(Class<?> c) {
         Set<Method> methods = new HashSet<>();
         Class<?> current = c;
@@ -231,6 +233,14 @@ final class CommandParser {
         return methods;
     }
 
+    /**
+     * Generates usage syntax for the command. This will wrap optional parameters
+     * with squared brackets, and required parameters with angled brackets, as well
+     * as flags and switches
+     *
+     * @param command Command to generate for
+     * @return The usage
+     */
     private static String generateUsage(@NotNull ExecutableCommand command) {
         StringJoiner joiner = new StringJoiner(" ");
         CommandHandler handler = command.getCommandHandler();
@@ -250,8 +260,17 @@ final class CommandParser {
         return joiner.toString();
     }
 
+    /**
+     * Recursively finds the best response handler for the given command. This will
+     * respect {@link CompletionStage}s, {@link Supplier}s, and {@link Optional}s,
+     * as well as the generics they have.
+     *
+     * @param handler     Command handler to find response handlers from
+     * @param genericType The return type of the method to find a response handler for
+     * @return The response handler
+     */
     @SuppressWarnings("rawtypes")
-    private static ResponseHandler<?> getResponseHandler(BaseCommandHandler handler, Type genericType) {
+    private static @NotNull ResponseHandler<?> getResponseHandler(BaseCommandHandler handler, Type genericType) {
         Class<?> rawType = Primitives.getRawType(genericType);
         if (CompletionStage.class.isAssignableFrom(rawType)) {
             ResponseHandler delegateHandler = getResponseHandler(handler, getInsideGeneric(genericType));
@@ -268,6 +287,13 @@ final class CommandParser {
         return handler.responseHandlers.getFlexibleOrDefault(rawType, VOID_HANDLER);
     }
 
+    /**
+     * Returns the 1st type inside the generic. This assumer that the type only defines 1
+     * generic type (such as {@link Optional} or {@link Supplier})
+     *
+     * @param genericType The generic type to find from, for example {@code Optional<String>}
+     * @return The type inside, for example {@code String}.
+     */
     private static Type getInsideGeneric(Type genericType) {
         try {
             return ((ParameterizedType) genericType).getActualTypeArguments()[0];
@@ -276,12 +302,23 @@ final class CommandParser {
         }
     }
 
-    private static Set<BaseCommandCategory> generateCategories(
+    /**
+     * Generates all categories for a path. This will walk through all
+     * strings inside the path and create categories as needed.
+     *
+     * @param handler   Command handler to assign to categories
+     * @param isDefault Whether is the given path a default command
+     * @param path      The path to generate for
+     * @return A set of all categories from the path
+     */
+    private static Set<BaseCommandCategory> generateCategoriesForPath(
             CommandHandler handler,
-            boolean respectDefault,
+            boolean isDefault,
             @NotNull CommandPath path
     ) {
-        if (path.size() == 1 && !respectDefault) return Collections.emptySet();
+        // must be an actual command, so don't generate any categories
+        if (path.size() == 1 && !isDefault)
+            return Collections.emptySet();
         String parent = path.getParent();
         Set<BaseCommandCategory> categories = new HashSet<>();
 
@@ -302,21 +339,28 @@ final class CommandParser {
             cat.name = cat.path.getName();
             categories.add(cat);
         }
-
         return categories;
     }
 
+    /**
+     * Generates parameters for the given command, and checks their validity
+     *
+     * @param handler Handler to assign to parameters
+     * @param method  Method to parse for
+     * @param command The command to parse parameters for
+     * @return A list of all command parameters
+     */
     private static List<CommandParameter> getParameters(@NotNull BaseCommandHandler handler,
                                                         @NotNull Method method,
-                                                        @NotNull CommandExecutable parent) {
+                                                        @NotNull CommandExecutable command) {
         List<CommandParameter> parameters = new ArrayList<>();
         Parameter[] methodParameters = method.getParameters();
         int cIndex = 0;
         for (int i = 0; i < methodParameters.length; i++) {
-            Parameter parameter = methodParameters[i];
-            AnnotationReader paramAnns = AnnotationReader.create(handler, parameter);
+            Parameter javaParameter = methodParameters[i];
+            AnnotationReader paramAnns = AnnotationReader.create(handler, javaParameter);
             List<ParameterValidator<Object>> validators = new ArrayList<>(
-                    handler.validators.getFlexibleOrDefault(parameter.getType(), emptyList())
+                    handler.validators.getFlexibleOrDefault(javaParameter.getType(), emptyList())
             );
 
             String[] defaultValue = paramAnns.get(Default.class, Default::value);
@@ -324,18 +368,30 @@ final class CommandParser {
                 defaultValue = paramAnns.get(Optional.class, Optional::def);
 
             BaseCommandParameter param = new BaseCommandParameter(
-                    getName(parameter),
                     paramAnns.get(Description.class, Description::value),
                     i,
                     defaultValue == null ? emptyList() : Collections.unmodifiableList(Arrays.asList(defaultValue)),
                     i == methodParameters.length - 1 && !paramAnns.contains(Single.class),
                     paramAnns.contains(Optional.class) || paramAnns.contains(Default.class),
-                    parent,
-                    parameter,
+                    command,
+                    javaParameter,
                     paramAnns.get(Switch.class),
                     paramAnns.get(Flag.class),
                     Collections.unmodifiableList(validators)
             );
+
+            /* The name overridden by @Named, @Switch, or @Flag */
+            String overriddenName = getOverriddenName(javaParameter);
+            param.name = overriddenName == null ? javaParameter.getName() : overriddenName;
+
+            /* No name specified, use the naming strategy instead */
+            if (overriddenName == null) {
+                overriddenName = handler.parameterNamingStrategy.getName(param);
+                Objects.requireNonNull(overriddenName, "ParameterNamingStrategy.getName() returned null for parameter '" +
+                        javaParameter.getName() + "' in '" + method + "'!");
+            }
+
+            param.name = overriddenName;
 
             for (PermissionReader reader : handler.getPermissionReaders()) {
                 CommandPermission permission = reader.getPermission(param);
@@ -345,20 +401,24 @@ final class CommandParser {
                 }
             }
 
+            /* Optional parmeters may be null, so make sure it isn't primitive as primitives cannot
+               hold null values */
             if (param.getType().isPrimitive() && param.isOptional() && param.getDefaultValue().isEmpty() && !param.isSwitch())
-                throw new IllegalStateException("Optional parameter " + parameter + " at " + method + " cannot be a prmitive!");
+                throw new IllegalStateException("Optional parameter " + javaParameter + " at " + method + " cannot be a prmitive!");
+
+            /* Switches must only be booleans */
             if (param.isSwitch()) {
                 if (Primitives.wrap(param.getType()) != Boolean.class)
-                    throw new IllegalStateException("Switch parameter " + parameter + " at " + method + " must be of boolean type!");
+                    throw new IllegalStateException("Switch parameter " + javaParameter + " at " + method + " must be of boolean type!");
             }
             ParameterResolver<?> resolver;
             if (param.getType() == ArgumentStack.class) {
-                resolver = new Resolver(context -> ArgumentStack.copy(context.input()), null);
+                resolver = new Resolver(context -> ArgumentStack.copyExact(context.input()), null);
             } else
                 resolver = handler.getResolver(param);
 
             if (resolver == null) {
-                throw new IllegalStateException("Unable to find a resolver for parameter type " + parameter.getType());
+                throw new IllegalStateException("Unable to find a resolver for parameter type " + javaParameter.getType());
             }
             param.resolver = resolver;
             if (resolver.mutatesArguments())
@@ -369,10 +429,26 @@ final class CommandParser {
         return Collections.unmodifiableList(parameters);
     }
 
+    /**
+     * Concatenates all the paths for a command by merging those
+     * defined by {@link Command}, {@link Subcommand}, and those
+     * defined in the parent class, and any other parent classes
+     *
+     * @param container The class containing the commands
+     * @param method    The method that contains annotations
+     * @param reader    The annotation reader to read from
+     * @return A list of all command paths that lead to this command
+     */
     private static List<CommandPath> getCommandPath(@NotNull Class<?> container,
                                                     @NotNull Method method,
                                                     @NotNull AnnotationReader reader) {
         List<CommandPath> paths = new ArrayList<>();
+
+        DefaultFor defaultFor = reader.get(DefaultFor.class);
+        if (defaultFor != null) {
+            return Arrays.stream(defaultFor.value()).map(CommandPath::parse)
+                    .collect(Collectors.toList());
+        }
 
         List<String> commands = new ArrayList<>();
         List<String> subcommands = new ArrayList<>();
@@ -411,6 +487,13 @@ final class CommandParser {
         return paths;
     }
 
+    /**
+     * Returns a hierarchy of classes that are contained by the given class. The
+     * order of the list matters, as it starts from the parent and ends at the child
+     *
+     * @param c Class to find for
+     * @return A list of all classes containing each other
+     */
     private static List<Class<?>> getTopClasses(Class<?> c) {
         List<Class<?>> classes = listOf(c);
         Class<?> enclosingClass = c.getEnclosingClass();
