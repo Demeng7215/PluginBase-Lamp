@@ -23,20 +23,19 @@
  */
 package revxrsal.commands.util;
 
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
-import revxrsal.commands.annotation.Flag;
-import revxrsal.commands.annotation.Named;
-import revxrsal.commands.annotation.Switch;
+import static revxrsal.commands.util.Preconditions.checkArgument;
+import static revxrsal.commands.util.Preconditions.notNull;
 
 import java.lang.reflect.Parameter;
 import java.util.Collections;
 import java.util.LinkedList;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-
-import static revxrsal.commands.util.Preconditions.checkArgument;
-import static revxrsal.commands.util.Preconditions.notNull;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+import revxrsal.commands.annotation.Flag;
+import revxrsal.commands.annotation.Named;
+import revxrsal.commands.annotation.Switch;
 
 /**
  * General utilities for string operations
