@@ -1,19 +1,8 @@
 package revxrsal.commands.bukkit.core;
 
-import static revxrsal.commands.util.Preconditions.notNull;
-
 import dev.demeng.pluginbase.lib.adventure.platform.bukkit.BukkitAudiences;
 import dev.demeng.pluginbase.lib.adventure.text.ComponentLike;
 import dev.demeng.pluginbase.plugin.BaseManager;
-import java.lang.reflect.Constructor;
-import java.lang.reflect.Field;
-import java.lang.reflect.Type;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.function.Supplier;
-import java.util.logging.Logger;
-import java.util.stream.Collectors;
 import lombok.SneakyThrows;
 import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
@@ -41,12 +30,7 @@ import revxrsal.commands.bukkit.adventure.AudienceSenderResolver;
 import revxrsal.commands.bukkit.adventure.ComponentResponseHandler;
 import revxrsal.commands.bukkit.brigadier.CommodoreBukkitBrigadier;
 import revxrsal.commands.bukkit.core.EntitySelectorResolver.SelectorSuggestionFactory;
-import revxrsal.commands.bukkit.exception.BukkitExceptionAdapter;
-import revxrsal.commands.bukkit.exception.InvalidPlayerException;
-import revxrsal.commands.bukkit.exception.InvalidWorldException;
-import revxrsal.commands.bukkit.exception.MalformedEntitySelectorException;
-import revxrsal.commands.bukkit.exception.MoreThanOnePlayerException;
-import revxrsal.commands.bukkit.exception.NonPlayerEntitiesException;
+import revxrsal.commands.bukkit.exception.*;
 import revxrsal.commands.command.CommandCategory;
 import revxrsal.commands.command.ExecutableCommand;
 import revxrsal.commands.core.BaseCommandHandler;
@@ -54,15 +38,27 @@ import revxrsal.commands.core.CommandPath;
 import revxrsal.commands.exception.EnumNotFoundException;
 import revxrsal.commands.util.Primitives;
 
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
+import java.lang.reflect.Type;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.function.Supplier;
+import java.util.logging.Logger;
+import java.util.stream.Collectors;
+
+import static revxrsal.commands.util.Preconditions.notNull;
+
 @ApiStatus.Internal
 public final class BukkitHandler extends BaseCommandHandler implements BukkitCommandHandler {
 
-  public static final SuggestionProvider playerSuggestionProvider = (args, sender, command) -> Bukkit.getOnlinePlayers()
-      .stream()
-      .filter(player -> !((BukkitCommandActor) sender).isPlayer()
-          || ((BukkitCommandActor) sender).requirePlayer().canSee(player))
-      .map(HumanEntity::getName)
-      .collect(Collectors.toList());
+  public static final SuggestionProvider playerSuggestionProvider =
+      (args, sender, command) -> Bukkit.getOnlinePlayers().stream()
+          .filter(player -> !((BukkitCommandActor) sender).isPlayer()
+              || ((BukkitCommandActor) sender).requirePlayer().canSee(player))
+          .map(HumanEntity::getName)
+          .collect(Collectors.toList());
 
   private final Plugin plugin;
   private Optional<BukkitBrigadier> brigadier;
@@ -78,72 +74,79 @@ public final class BukkitHandler extends BaseCommandHandler implements BukkitCom
       brigadier = Optional.empty();
     }
     registerSenderResolver(BukkitSenderResolver.INSTANCE);
-    registerValueResolver(Player.class, context -> {
-      String value = context.pop();
-      if (value.equalsIgnoreCase("self") || value.equalsIgnoreCase("me")) {
-        return ((BukkitCommandActor) context.actor()).requirePlayer();
-      }
-      if (EntitySelectorResolver.INSTANCE.supportsComplexSelectors()) {
-        try {
-          List<Entity> entityList = Bukkit.selectEntities(
-              ((BukkitActor) context.actor()).getSender(), value);
-          if (entityList.stream().anyMatch(c -> !(c instanceof Player))) {
-            throw new NonPlayerEntitiesException(value);
+    registerValueResolver(
+        Player.class,
+        context -> {
+          String value = context.pop();
+          if (value.equalsIgnoreCase("self") || value.equalsIgnoreCase("me")) {
+            return ((BukkitCommandActor) context.actor()).requirePlayer();
           }
-          if (entityList.isEmpty()) {
+          if (EntitySelectorResolver.INSTANCE.supportsComplexSelectors()) {
+            try {
+              List<Entity> entityList =
+                  Bukkit.selectEntities(((BukkitActor) context.actor()).getSender(), value);
+              if (entityList.stream().anyMatch(c -> !(c instanceof Player))) {
+                throw new NonPlayerEntitiesException(value);
+              }
+              if (entityList.isEmpty()) {
+                throw new InvalidPlayerException(context.parameter(), value);
+              }
+              if (entityList.size() > 1) {
+                throw new MoreThanOnePlayerException(value);
+              }
+              return (Player) entityList.get(0);
+            } catch (IllegalArgumentException e) {
+              throw new MalformedEntitySelectorException(
+                  context.actor(), value, e.getCause().getMessage());
+            }
+          }
+          Player player = Bukkit.getPlayerExact(value);
+          if (player == null) {
             throw new InvalidPlayerException(context.parameter(), value);
           }
-          if (entityList.size() > 1) {
-            throw new MoreThanOnePlayerException(value);
+          return player;
+        });
+    registerValueResolver(
+        OfflinePlayer.class,
+        context -> {
+          String value = context.pop();
+          if (value.equalsIgnoreCase("self") || value.equalsIgnoreCase("me")) {
+            return ((BukkitCommandActor) context.actor()).requirePlayer();
           }
-          return (Player) entityList.get(0);
-        } catch (IllegalArgumentException e) {
-          throw new MalformedEntitySelectorException(context.actor(), value,
-              e.getCause().getMessage());
-        }
-      }
-      Player player = Bukkit.getPlayerExact(value);
-      if (player == null) {
-        throw new InvalidPlayerException(context.parameter(), value);
-      }
-      return player;
-    });
-    registerValueResolver(OfflinePlayer.class, context -> {
-      String value = context.pop();
-      if (value.equalsIgnoreCase("self") || value.equalsIgnoreCase("me")) {
-        return ((BukkitCommandActor) context.actor()).requirePlayer();
-      }
-      OfflinePlayer player = Bukkit.getOfflinePlayer(value);
-      if (!player.hasPlayedBefore()) {
-        throw new InvalidPlayerException(context.parameter(), value);
-      }
-      return player;
-    });
-    registerValueResolver(World.class, context -> {
-      String value = context.pop();
-      if (value.equalsIgnoreCase("self") || value.equalsIgnoreCase("me")) {
-        return ((BukkitCommandActor) context.actor()).requirePlayer().getWorld();
-      }
-      World world = Bukkit.getWorld(value);
-      if (world == null) {
-        throw new InvalidWorldException(context.parameter(), value);
-      }
-      return world;
-    });
-    registerValueResolver(EntityType.class, context -> {
-      String value = context.pop().toLowerCase();
-      if (value.startsWith("minecraft:")) {
-        value = value.substring("minecraft:".length());
-      }
-      EntityType type = EntityType.fromName(value);
-      if (type == null) {
-        throw new EnumNotFoundException(context.parameter(), value);
-      }
-      return type;
-    });
+          OfflinePlayer player = Bukkit.getOfflinePlayer(value);
+          if (!player.hasPlayedBefore() && !player.isOnline()) {
+            throw new InvalidPlayerException(context.parameter(), value);
+          }
+          return player;
+        });
+    registerValueResolver(
+        World.class,
+        context -> {
+          String value = context.pop();
+          if (value.equalsIgnoreCase("self") || value.equalsIgnoreCase("me")) {
+            return ((BukkitCommandActor) context.actor()).requirePlayer().getWorld();
+          }
+          World world = Bukkit.getWorld(value);
+          if (world == null) {
+            throw new InvalidWorldException(context.parameter(), value);
+          }
+          return world;
+        });
+    registerValueResolver(
+        EntityType.class,
+        context -> {
+          String value = context.pop().toLowerCase();
+          if (value.startsWith("minecraft:")) {
+            value = value.substring("minecraft:".length());
+          }
+          EntityType type = EntityType.fromName(value);
+          if (type == null) {
+            throw new EnumNotFoundException(context.parameter(), value);
+          }
+          return type;
+        });
     if (EntitySelectorResolver.INSTANCE.supportsComplexSelectors() && isBrigadierSupported()) {
-      getAutoCompleter().registerParameterSuggestions(EntityType.class,
-          SuggestionProvider.EMPTY);
+      getAutoCompleter().registerParameterSuggestions(EntityType.class, SuggestionProvider.EMPTY);
     }
     registerValueResolverFactory(EntitySelectorResolver.INSTANCE);
 
@@ -212,8 +215,8 @@ public final class BukkitHandler extends BaseCommandHandler implements BukkitCom
     registerResponseHandler(ComponentLike.class, new ComponentResponseHandler(audiences::sender));
   }
 
-  private @SneakyThrows void createPluginCommand(String name, @Nullable String description,
-      @Nullable String usage) {
+  private @SneakyThrows void createPluginCommand(
+      String name, @Nullable String description, @Nullable String usage) {
     PluginCommand cmd = ((JavaPlugin) plugin).getCommand(name);
     if (cmd == null) {
       cmd = COMMAND_CONSTRUCTOR.newInstance(name, plugin);
@@ -246,8 +249,7 @@ public final class BukkitHandler extends BaseCommandHandler implements BukkitCom
       Map<String, Command> knownCommands = getKnownCommands();
       if (knownCommands != null) {
         Command rawAlias = knownCommands.get(command.getName());
-        if (rawAlias instanceof PluginCommand
-            && ((PluginCommand) rawAlias).getPlugin() == plugin) {
+        if (rawAlias instanceof PluginCommand && ((PluginCommand) rawAlias).getPlugin() == plugin) {
           knownCommands.remove(command.getName());
         }
         knownCommands.remove(plugin.getDescription().getName() + ":" + command.getName());
@@ -294,7 +296,5 @@ public final class BukkitHandler extends BaseCommandHandler implements BukkitCom
       return (Map<String, Command>) KNOWN_COMMANDS.get(COMMAND_MAP);
     }
     return null;
-
   }
-
 }
