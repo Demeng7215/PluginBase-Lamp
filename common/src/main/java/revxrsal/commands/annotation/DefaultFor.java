@@ -18,11 +18,30 @@ import java.lang.annotation.Target;
  *
  *     @DefaultFor("test") // <--- Becomes the default action when running '/test [page]'
  *     @Subcommand("help") // <--- Also executes in '/test help [page]'
- *     public void help(@Optional(def = "1") int page) {
+ *     public void help(@Default("1") int page) {
  *         ...
  *     }
  * }}
  * </pre>
+ * <p>
+ * To avoid having to specify all parent paths explicitly, {@link DefaultFor}
+ * allows using the special character {@literal ~} (tilde) as a placeholder for all
+ * parent paths.
+ * <p>
+ * This example demonstrates this:
+ * <pre>{@code
+ * @Command("foo", "bar", "buzz")
+ * public class TestCommand {
+ *
+ *     // This would execute for the following:
+ *     // - /foo, /foo help
+ *     // - /bar, /bar help
+ *     // - /buzz, /buzz help
+ *     @DefaultFor({"~", "~ help"})
+ *     public void help(@Default("1") int page) {
+ *         ...
+ *     }
+ * }}</pre>
  */
 @Target(ElementType.METHOD)
 @Retention(RetentionPolicy.RUNTIME)

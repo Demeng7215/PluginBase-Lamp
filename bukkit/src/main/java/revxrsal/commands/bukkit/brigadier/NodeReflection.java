@@ -27,48 +27,48 @@ import com.mojang.brigadier.Command;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
 import com.mojang.brigadier.tree.ArgumentCommandNode;
 import com.mojang.brigadier.tree.CommandNode;
+
 import java.lang.reflect.Field;
 import java.util.function.Predicate;
 
 final class NodeReflection {
 
-  private static final Field command, requirement, customSuggestions;
+    private static final Field command, requirement, customSuggestions;
 
-  static {
-    try {
-      command = CommandNode.class.getDeclaredField("command");
-      command.setAccessible(true);
-      requirement = CommandNode.class.getDeclaredField("requirement");
-      requirement.setAccessible(true);
-      customSuggestions = ArgumentCommandNode.class.getDeclaredField("customSuggestions");
-      customSuggestions.setAccessible(true);
-    } catch (NoSuchFieldException e) {
-      throw new RuntimeException(e);
+    static {
+        try {
+            command = CommandNode.class.getDeclaredField("command");
+            command.setAccessible(true);
+            requirement = CommandNode.class.getDeclaredField("requirement");
+            requirement.setAccessible(true);
+            customSuggestions = ArgumentCommandNode.class.getDeclaredField("customSuggestions");
+            customSuggestions.setAccessible(true);
+        } catch (NoSuchFieldException e) {
+            throw new RuntimeException(e);
+        }
     }
-  }
 
-  public static <T> void setCommand(CommandNode<T> node, Command<T> requirement) {
-    try {
-      command.set(node, requirement);
-    } catch (IllegalAccessException e) {
-      e.printStackTrace();
+    public static <T> void setCommand(CommandNode<T> node, Command<T> command) {
+        try {
+            NodeReflection.command.set(node, command);
+        } catch (IllegalAccessException e) {
+            e.printStackTrace();
+        }
     }
-  }
 
-  public static <T> void setRequirement(CommandNode<T> node, Predicate<T> requirement) {
-    try {
-      NodeReflection.requirement.set(node, requirement);
-    } catch (IllegalAccessException e) {
-      e.printStackTrace();
+    public static <T> void setRequirement(CommandNode<T> node, Predicate<T> requirement) {
+        try {
+            NodeReflection.requirement.set(node, requirement);
+        } catch (IllegalAccessException e) {
+            e.printStackTrace();
+        }
     }
-  }
 
-  public static <S, T> void setSuggestionProvider(ArgumentCommandNode<S, T> node,
-      SuggestionProvider<S> provider) {
-    try {
-      customSuggestions.set(node, provider);
-    } catch (IllegalAccessException e) {
-      e.printStackTrace();
+    public static <S, T> void setSuggestionProvider(ArgumentCommandNode<S, T> node, SuggestionProvider<S> provider) {
+        try {
+            customSuggestions.set(node, provider);
+        } catch (IllegalAccessException e) {
+            e.printStackTrace();
+        }
     }
-  }
 }

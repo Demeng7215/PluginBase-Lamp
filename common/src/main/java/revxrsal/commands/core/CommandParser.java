@@ -23,45 +23,11 @@
  */
 package revxrsal.commands.core;
 
-import static java.util.Collections.addAll;
-import static java.util.Collections.emptyList;
-import static java.util.stream.Collectors.toMap;
-import static revxrsal.commands.util.Collections.listOf;
-import static revxrsal.commands.util.Strings.getOverriddenName;
-import static revxrsal.commands.util.Strings.splitBySpace;
-
-import java.lang.annotation.Annotation;
-import java.lang.reflect.Method;
-import java.lang.reflect.Parameter;
-import java.lang.reflect.ParameterizedType;
-import java.lang.reflect.Type;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
-import java.util.StringJoiner;
-import java.util.concurrent.CompletionStage;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.Supplier;
-import java.util.stream.Collectors;
 import lombok.SneakyThrows;
 import org.jetbrains.annotations.NotNull;
 import revxrsal.commands.CommandHandler;
-import revxrsal.commands.annotation.Command;
-import revxrsal.commands.annotation.Default;
-import revxrsal.commands.annotation.DefaultFor;
-import revxrsal.commands.annotation.Description;
-import revxrsal.commands.annotation.Flag;
 import revxrsal.commands.annotation.Optional;
-import revxrsal.commands.annotation.SecretCommand;
-import revxrsal.commands.annotation.Single;
-import revxrsal.commands.annotation.Subcommand;
-import revxrsal.commands.annotation.Switch;
-import revxrsal.commands.annotation.Usage;
+import revxrsal.commands.annotation.*;
 import revxrsal.commands.command.ArgumentStack;
 import revxrsal.commands.command.CommandParameter;
 import revxrsal.commands.command.CommandPermission;
@@ -77,10 +43,43 @@ import revxrsal.commands.process.ResponseHandler;
 import revxrsal.commands.util.Preconditions;
 import revxrsal.commands.util.Primitives;
 
+import java.lang.annotation.Annotation;
+import java.lang.reflect.Method;
+import java.lang.reflect.Parameter;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
+import java.util.*;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
+import static java.util.Arrays.asList;
+import static java.util.Arrays.stream;
+import static java.util.Collections.addAll;
+import static java.util.Collections.emptyList;
+import static java.util.stream.Collectors.toMap;
+import static revxrsal.commands.util.Collections.listOf;
+import static revxrsal.commands.util.Strings.getOverriddenName;
+import static revxrsal.commands.util.Strings.splitBySpace;
+
 /**
  * Handles the parsing logic for commands
  */
 final class CommandParser {
+
+    /**
+     * The special character that gets parsed by {@link DefaultFor}
+     * to be replaced with parent paths.
+     */
+    private static final char INHERIT_PARENT_PATH = '~';
+
+    /**
+     * The special character that gets parsed by {@link DefaultFor}
+     * to be replaced with parent paths.
+     */
+    private static final String S_INHERIT_PARENT_PATH = "~";
 
     /**
      * Handles the response returned by (void) methods
@@ -155,9 +154,8 @@ final class CommandParser {
 
             /* Check if the command is default, and if so, generate a path for it */
             String[] defPaths = reader.get(DefaultFor.class, DefaultFor::value);
-            List<CommandPath> defaultPaths = defPaths == null ? emptyList() : Arrays.stream(defPaths)
-                .map(CommandPath::parse)
-                .collect(Collectors.toList());
+            List<CommandPath> defaultPaths = defPaths == null ? emptyList() :
+                    parseDefaultPaths(defPaths, container, method, reader);
             boolean isDefault = !defaultPaths.isEmpty();
 
             /* Generate categories for default paths if not created already */
@@ -198,8 +196,8 @@ final class CommandParser {
                     executable.responseHandler = getResponseHandler(handler, method.getGenericReturnType());
                     executable.parameters = getParameters(handler, method, executable);
                     executable.resolveableParameters = executable.parameters.stream()
-                        .filter(c -> c.getCommandIndex() != -1)
-                        .collect(toMap(CommandParameter::getCommandIndex, c -> c));
+                            .filter(c -> c.getCommandIndex() != -1)
+                            .collect(toMap(CommandParameter::getCommandIndex, c -> c));
                     executable.usage = reader.get(Usage.class, Usage::value, () -> generateUsage(executable));
                     if (!registerAsDefault) {
                         putOrError(handler.executables, p, executable, "A command with path '" + p.toRealString() + "' already exists!");
@@ -328,9 +326,9 @@ final class CommandParser {
      * @return A set of all categories from the path
      */
     private static Set<BaseCommandCategory> generateCategoriesForPath(
-        CommandHandler handler,
-        boolean isDefault,
-        @NotNull CommandPath path
+            CommandHandler handler,
+            boolean isDefault,
+            @NotNull CommandPath path
     ) {
         // must be an actual command, so don't generate any categories
         if (path.size() == 1 && !isDefault)
@@ -367,8 +365,8 @@ final class CommandParser {
      * @return A list of all command parameters
      */
     private static List<CommandParameter> getParameters(@NotNull BaseCommandHandler handler,
-        @NotNull Method method,
-        @NotNull CommandExecutable command) {
+                                                        @NotNull Method method,
+                                                        @NotNull CommandExecutable command) {
         List<CommandParameter> parameters = new ArrayList<>();
         Parameter[] methodParameters = method.getParameters();
         int cIndex = 0;
@@ -376,24 +374,24 @@ final class CommandParser {
             Parameter javaParameter = methodParameters[i];
             AnnotationReader paramAnns = AnnotationReader.create(handler, javaParameter);
             List<ParameterValidator<Object>> validators = new ArrayList<>(
-                handler.validators.getFlexibleOrDefault(javaParameter.getType(), emptyList())
+                    handler.validators.getFlexibleOrDefault(javaParameter.getType(), emptyList())
             );
 
             String[] defaultValue = paramAnns.get(Default.class, Default::value);
-            if (defaultValue == null || defaultValue.length == 0 && paramAnns.contains(Optional.class))
-                defaultValue = paramAnns.get(Optional.class, Optional::def);
-
+            if (defaultValue == null || defaultValue.length == 0) {
+                defaultValue = null;
+            }
             BaseCommandParameter param = new BaseCommandParameter(
-                paramAnns.get(Description.class, Description::value),
-                i,
-                defaultValue == null ? emptyList() : Collections.unmodifiableList(Arrays.asList(defaultValue)),
-                i == methodParameters.length - 1 && !paramAnns.contains(Single.class),
-                paramAnns.contains(Optional.class) || paramAnns.contains(Default.class),
-                command,
-                javaParameter,
-                paramAnns.get(Switch.class),
-                paramAnns.get(Flag.class),
-                Collections.unmodifiableList(validators)
+                    paramAnns.get(Description.class, Description::value),
+                    i,
+                    defaultValue == null ? emptyList() : Collections.unmodifiableList(asList(defaultValue)),
+                    i == methodParameters.length - 1 && !paramAnns.contains(Single.class),
+                    paramAnns.contains(Optional.class) || paramAnns.contains(Default.class),
+                    command,
+                    javaParameter,
+                    paramAnns.get(Switch.class),
+                    paramAnns.get(Flag.class),
+                    Collections.unmodifiableList(validators)
             );
 
             /* The name overridden by @Named, @Switch, or @Flag */
@@ -404,7 +402,7 @@ final class CommandParser {
             if (overriddenName == null) {
                 overriddenName = handler.parameterNamingStrategy.getName(param);
                 Objects.requireNonNull(overriddenName, "ParameterNamingStrategy.getName() returned null for parameter '" +
-                    javaParameter.getName() + "' in '" + method + "'!");
+                        javaParameter.getName() + "' in '" + method + "'!");
             }
 
             param.name = overriddenName;
@@ -417,10 +415,11 @@ final class CommandParser {
                 }
             }
 
+
             /* Optional parmeters may be null, so make sure it isn't primitive as primitives cannot
                hold null values */
-            if (param.getType().isPrimitive() && param.isOptional() && param.getDefaultValue().isEmpty() && !param.isSwitch())
-                throw new IllegalStateException("Optional parameter " + javaParameter + " at " + method + " cannot be a prmitive!");
+//            if (param.getType().isPrimitive() && param.isOptional() && param.getDefaultValue().isEmpty() && !param.isSwitch())
+//                throw new IllegalStateException("Optional parameter " + javaParameter + " at " + method + " cannot be a prmitive!");
 
             /* Switches must only be booleans */
             if (param.isSwitch()) {
@@ -447,8 +446,8 @@ final class CommandParser {
 
     /**
      * Concatenates all the paths for a command by merging those
-     * defined by {@link Command}, {@link Subcommand}, and those
-     * defined in the parent class, and any other parent classes
+     * defined by {@link Command}, {@link Subcommand}, {@link DefaultFor}, and
+     * those defined in the parent class, and any other parent classes.
      *
      * @param container The class containing the commands
      * @param method    The method that contains annotations
@@ -456,21 +455,60 @@ final class CommandParser {
      * @return A list of all command paths that lead to this command
      */
     private static List<CommandPath> getCommandPath(@NotNull Class<?> container,
-        @NotNull Method method,
-        @NotNull AnnotationReader reader) {
-        List<CommandPath> paths = new ArrayList<>();
+                                                    @NotNull Method method,
+                                                    @NotNull AnnotationReader reader) {
 
         DefaultFor defaultFor = reader.get(DefaultFor.class);
         if (defaultFor != null) {
-            return Arrays.stream(defaultFor.value()).map(CommandPath::parse)
-                .collect(Collectors.toList());
+            return parseDefaultPaths(defaultFor.value(), container, method, reader);
         }
 
+        return parseCommandAnnotations(container, method, reader);
+    }
+
+    /**
+     * Parses the paths in {@link DefaultFor}. This will automatically replace
+     * {@code ~} with the top-level parent paths.
+     *
+     * @param path      The path, as defined in {@link DefaultFor#value()}
+     * @param container The container class
+     * @param method    The method that contains the annotation
+     * @param reader    The annotation reader
+     * @return The parsed CommandPaths.
+     */
+    @NotNull
+    private static List<CommandPath> parseDefaultPaths(
+            String[] path,
+            @NotNull Class<?> container,
+            @NotNull Method method,
+            @NotNull AnnotationReader reader
+    ) {
+        return stream(path)
+                .flatMap(defaultPath -> {
+                    if (defaultPath.indexOf(INHERIT_PARENT_PATH) != -1) {
+                        return parseCommandAnnotations(container, method, reader)
+                                .stream()
+                                .map(CommandPath::toRealString)
+                                .map(v -> defaultPath.replace(S_INHERIT_PARENT_PATH, v))
+                                .map(str -> CommandPath.parse(str));
+                    } else
+                        return Stream.of(CommandPath.parse(defaultPath));
+                })
+                .collect(Collectors.toList());
+    }
+
+    private static List<CommandPath> parseCommandAnnotations(
+            @NotNull Class<?> container,
+            @NotNull Method method,
+            @NotNull AnnotationReader reader
+    ) {
+        List<CommandPath> paths = new ArrayList<>();
         List<String> commands = new ArrayList<>();
         List<String> subcommands = new ArrayList<>();
+
         Command commandAnnotation = reader.get(Command.class, "Method " + method.getName() + " does not have a parent command! You might have forgotten one of the following:\n" +
-            "- @Command on the method or class\n" +
-            "- implement OrphanCommand");
+                "- @Command on the method or class\n" +
+                "- implement OrphanCommand");
         Preconditions.notEmpty(commandAnnotation.value(), "@Command#value() cannot be an empty array!");
         addAll(commands, commandAnnotation.value());
 
@@ -526,5 +564,4 @@ final class CommandParser {
         }
         map.put(key, value);
     }
-
 }

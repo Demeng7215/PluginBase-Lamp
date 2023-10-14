@@ -1,19 +1,8 @@
 package revxrsal.commands.bukkit.core;
 
-import static revxrsal.commands.util.Preconditions.notNull;
-
 import dev.demeng.pluginbase.lib.adventure.platform.bukkit.BukkitAudiences;
 import dev.demeng.pluginbase.lib.adventure.text.ComponentLike;
 import dev.demeng.pluginbase.plugin.BaseManager;
-import java.lang.reflect.Constructor;
-import java.lang.reflect.Field;
-import java.lang.reflect.Type;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.function.Supplier;
-import java.util.logging.Logger;
-import java.util.stream.Collectors;
 import lombok.SneakyThrows;
 import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
@@ -41,18 +30,25 @@ import revxrsal.commands.bukkit.adventure.AudienceSenderResolver;
 import revxrsal.commands.bukkit.adventure.ComponentResponseHandler;
 import revxrsal.commands.bukkit.brigadier.CommodoreBukkitBrigadier;
 import revxrsal.commands.bukkit.core.EntitySelectorResolver.SelectorSuggestionFactory;
-import revxrsal.commands.bukkit.exception.BukkitExceptionAdapter;
-import revxrsal.commands.bukkit.exception.InvalidPlayerException;
-import revxrsal.commands.bukkit.exception.InvalidWorldException;
-import revxrsal.commands.bukkit.exception.MalformedEntitySelectorException;
-import revxrsal.commands.bukkit.exception.MoreThanOnePlayerException;
-import revxrsal.commands.bukkit.exception.NonPlayerEntitiesException;
+import revxrsal.commands.bukkit.exception.*;
 import revxrsal.commands.command.CommandCategory;
 import revxrsal.commands.command.ExecutableCommand;
 import revxrsal.commands.core.BaseCommandHandler;
 import revxrsal.commands.core.CommandPath;
 import revxrsal.commands.exception.EnumNotFoundException;
 import revxrsal.commands.util.Primitives;
+
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
+import java.lang.reflect.Type;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.function.Supplier;
+import java.util.logging.Logger;
+import java.util.stream.Collectors;
+
+import static revxrsal.commands.util.Preconditions.notNull;
 
 @ApiStatus.Internal
 public final class BukkitHandler extends BaseCommandHandler implements BukkitCommandHandler {
@@ -114,7 +110,7 @@ public final class BukkitHandler extends BaseCommandHandler implements BukkitCom
         return ((BukkitCommandActor) context.actor()).requirePlayer();
       }
       OfflinePlayer player = Bukkit.getOfflinePlayer(value);
-      if (!player.hasPlayedBefore()) {
+      if (!player.hasPlayedBefore() && !player.isOnline() && player.getFirstPlayed() == 0L) {
         throw new InvalidPlayerException(context.parameter(), value);
       }
       return player;

@@ -2,3 +2,5 @@ rootProject.name = "Lamp"
 
 include "common"
 include "bukkit"
+include "brigadier"
+include 'paper-types'

@@ -90,6 +90,22 @@ public final class Strings {
         return null;
     }
 
+    public static @NotNull String stripNamespace(String namespace, @NotNull String command) {
+        int colon = command.indexOf(namespace + ':');
+        if (colon == -1) {
+            return command;
+        }
+        // +1 for the ':'
+        return command.substring(namespace.length() + 1);
+    }
+
+    public static @NotNull String stripNamespace(@NotNull String command) {
+        int colon = command.indexOf(':');
+        if (colon == -1)
+            return command;
+        return command.substring(colon + 1);
+    }
+
     public static String repeat(String string, int count) {
         notNull(string, "string");
 
@@ -119,7 +135,7 @@ public final class Strings {
         char[] b = text.toCharArray();
         for (int i = 0; i < b.length - 1; i++) {
             if (b[i] == '&' && "0123456789AaBbCcDdEeFfKkLlMmNnOoRrXx".indexOf(b[i + 1]) > -1) {
-                b[i] = '\u00A7';
+                b[i] = '§';
                 b[i + 1] = Character.toLowerCase(b[i + 1]);
             }
         }

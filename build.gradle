@@ -8,7 +8,7 @@ subprojects {
     apply plugin: "maven-publish"
 
     group = "dev.demeng"
-    version = "3.1.5"
+    version = "3.1.7"
 
     sourceCompatibility = 1.8
     targetCompatibility = 1.8
@@ -27,9 +27,13 @@ subprojects {
     }
 
     dependencies {
-        compileOnly("com.github.Demeng7215.PluginBase:pluginbase-core:f795c70c69")
-        compileOnly("org.jetbrains:annotations:22.0.0")
-        compileOnly("org.projectlombok:lombok:1.18.20")
-        annotationProcessor("org.projectlombok:lombok:1.18.20")
+        compileOnly("com.github.Demeng7215.PluginBase:pluginbase-core:c1976d0d8b")
+        compileOnly("org.jetbrains:annotations:24.0.1")
+        compileOnly("org.projectlombok:lombok:1.18.30")
+        annotationProcessor("org.projectlombok:lombok:1.18.30")
+    }
+
+    compileJava {
+        options.encoding = "UTF-8"
     }
 }

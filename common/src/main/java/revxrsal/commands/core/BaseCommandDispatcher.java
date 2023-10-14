@@ -42,6 +42,8 @@ import revxrsal.commands.process.ValueResolver.ValueResolverContext;
 import java.util.List;
 import java.util.function.Function;
 
+import static revxrsal.commands.ktx.call.KotlinConstants.*;
+
 public final class BaseCommandDispatcher {
 
     private final BaseCommandHandler handler;
@@ -143,7 +145,8 @@ public final class BaseCommandDispatcher {
                     }
                     values[parameter.getMethodIndex()] = value;
                 } else {
-                    if (!addDefaultValues(args, parameter, values)) {
+                    boolean added = addDefaultValues(args, parameter, values);
+                    if (added) {
                         parameter.checkPermission(actor);
                         ValueContextR cxt = new ValueContextR(input, actor, parameter, values, args);
                         Object value = resolver.resolve(cxt);
@@ -162,19 +165,22 @@ public final class BaseCommandDispatcher {
                                      CommandParameter parameter,
                                      Object[] values) {
         if (args.isEmpty()) {
-            if (parameter.getDefaultValue().contains("<?null>")) {
-                values[parameter.getMethodIndex()] = null;
-                return true;
+            if (parameter.isOptional() && parameter.getDefaultValue().isEmpty()) {
+                if (isKotlinClass(parameter.getJavaParameter().getDeclaringExecutable().getDeclaringClass()))
+                    values[parameter.getMethodIndex()] = ABSENT_VALUE;
+                else
+                    values[parameter.getMethodIndex()] = defaultPrimitiveValue(parameter.getType());
+                return false;
             } else {
                 if (!parameter.getDefaultValue().isEmpty()) {
                     args.addAll(parameter.getDefaultValue());
-                    return false;
+                    return true;
                 } else {
                     throw new MissingArgumentException(parameter);
                 }
             }
         }
-        return false;
+        return true;
     }
 
     private void handleSwitch(ArgumentStack args, Object[] values, CommandParameter parameter) {
@@ -185,7 +191,7 @@ public final class BaseCommandDispatcher {
             values[parameter.getMethodIndex()] = true;
     }
 
-    @SneakyThrows private void handleFlag(List<String> input, CommandActor actor, ArgumentStack args, Object[] values, CommandParameter parameter) {
+    private void handleFlag(List<String> input, CommandActor actor, ArgumentStack args, Object[] values, CommandParameter parameter) {
         String lookup = handler.getFlagPrefix() + parameter.getFlagName();
         int index = args.indexOf(lookup);
         ArgumentStack flagArguments;
@@ -201,7 +207,10 @@ public final class BaseCommandDispatcher {
                     for (ParameterValidator<Object> v : parameter.getValidators()) {
                         v.validate(null, parameter, actor);
                     }
-                    values[parameter.getMethodIndex()] = null;
+                    if (isKotlinClass(parameter.getJavaParameter().getDeclaringExecutable().getDeclaringClass()))
+                        values[parameter.getMethodIndex()] = ABSENT_VALUE;
+                    else
+                        values[parameter.getMethodIndex()] = defaultPrimitiveValue(parameter.getType());
                     return;
                 }
             } else {
@@ -211,7 +220,7 @@ public final class BaseCommandDispatcher {
             args.remove(index); // remove the flag prefix + flag name
             if (index >= args.size())
                 throw new MissingArgumentException(parameter);
-            flagArguments = ArgumentStack.parse(args.remove(index)); // put the actual value in a separate argument stack
+            flagArguments = ArgumentStack.copyExact(args.remove(index)); // put the actual value in a separate argument stack
         }
         ValueContextR contextR = new ValueContextR(input, actor, parameter, values, flagArguments);
         Object value = parameter.getResolver().resolve(contextR);
@@ -219,7 +228,6 @@ public final class BaseCommandDispatcher {
             v.validate(value, parameter, actor);
         }
         values[parameter.getMethodIndex()] = value;
-
     }
 
     @AllArgsConstructor
@@ -230,27 +238,33 @@ public final class BaseCommandDispatcher {
         private final CommandParameter parameter;
         private final Object[] resolved;
 
-        @Override public @NotNull @Unmodifiable List<String> input() {
+        @Override
+        public @NotNull @Unmodifiable List<String> input() {
             return input;
         }
 
-        @Override public <A extends CommandActor> @NotNull A actor() {
+        @Override
+        public <A extends CommandActor> @NotNull A actor() {
             return (A) actor;
         }
 
-        @Override public @NotNull CommandParameter parameter() {
+        @Override
+        public @NotNull CommandParameter parameter() {
             return parameter;
         }
 
-        @Override public @NotNull ExecutableCommand command() {
+        @Override
+        public @NotNull ExecutableCommand command() {
             return parameter.getDeclaringCommand();
         }
 
-        @Override public @NotNull CommandHandler commandHandler() {
+        @Override
+        public @NotNull CommandHandler commandHandler() {
             return parameter.getCommandHandler();
         }
 
-        @Override public <T> @NotNull T getResolvedParameter(@NotNull CommandParameter parameter) {
+        @Override
+        public <T> @NotNull T getResolvedParameter(@NotNull CommandParameter parameter) {
             try {
                 return (T) resolved[parameter.getMethodIndex()];
             } catch (Throwable throwable) {
@@ -258,7 +272,8 @@ public final class BaseCommandDispatcher {
             }
         }
 
-        @Override public <T> @NotNull T getResolvedArgument(@NotNull Class<T> type) {
+        @Override
+        public <T> @NotNull T getResolvedArgument(@NotNull Class<T> type) {
             for (Object o : resolved) {
                 if (type.isInstance(o))
                     return (T) o;
@@ -287,15 +302,18 @@ public final class BaseCommandDispatcher {
             this.argumentStack = argumentStack;
         }
 
-        @Override public ArgumentStack arguments() {
+        @Override
+        public ArgumentStack arguments() {
             return argumentStack;
         }
 
-        @Override public String popForParameter() {
+        @Override
+        public String popForParameter() {
             return arguments().popForParameter(parameter());
         }
 
-        @Override public String pop() {
+        @Override
+        public String pop() {
             return arguments().pop();
         }
 
@@ -310,27 +328,33 @@ public final class BaseCommandDispatcher {
             }
         }
 
-        @Override public int popInt() {
+        @Override
+        public int popInt() {
             return num(Integer::parseInt);
         }
 
-        @Override public double popDouble() {
+        @Override
+        public double popDouble() {
             return num(Double::parseDouble);
         }
 
-        @Override public byte popByte() {
+        @Override
+        public byte popByte() {
             return num(Byte::parseByte);
         }
 
-        @Override public short popShort() {
+        @Override
+        public short popShort() {
             return num(Short::parseShort);
         }
 
-        @Override public float popFloat() {
+        @Override
+        public float popFloat() {
             return num(Float::parseFloat);
         }
 
-        @Override public long popLong() {
+        @Override
+        public long popLong() {
             return num(Long::parseLong);
         }
     }
