@@ -155,6 +155,7 @@ public final class BukkitHandler extends BaseCommandHandler implements BukkitCom
         SuggestionProvider.map(Bukkit::getWorlds, World::getName));
 
     getAutoCompleter().registerParameterSuggestions(Player.class, "players");
+    getAutoCompleter().registerParameterSuggestions(OfflinePlayer.class, "players");
     getAutoCompleter().registerParameterSuggestions(World.class, "worlds");
 
     getAutoCompleter().registerSuggestionFactory(SelectorSuggestionFactory.INSTANCE);
