@@ -139,7 +139,9 @@ public final class QuotedStringTokenizer {
 
     private static void parseEscape(TokenizerState state, StringBuilder builder) throws ArgumentParseException {
         state.next(); // Consume \
-        builder.appendCodePoint(state.next());
+        if(state.hasMore()) {
+            builder.appendCodePoint(state.next());
+        }
     }
 
     private static class TokenizerState {
