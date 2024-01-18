@@ -80,7 +80,7 @@ final class PaperCommodore extends Commodore implements Listener {
             } catch (ArgumentParseException e) {
                 return;
             }
-            if (commands.containsKey(args.getFirst())) {
+            if (!args.isEmpty() && commands.containsKey(args.getFirst())) {
                 event.message(null);
                 BukkitCommandActor actor = BukkitCommandActor.wrap(event.getSender(), handler);
                 try {
