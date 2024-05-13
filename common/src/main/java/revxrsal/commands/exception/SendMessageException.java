@@ -29,31 +29,43 @@ import revxrsal.commands.command.CommandActor;
 /**
  * Used to directly send-and-return a message to the command actor.
  * <p>
- * This exception should be used to directly transfer messages to the {@link CommandActor}, however
- * should not be used in command-fail contexts. To signal an error to the actor, use
- * {@link CommandErrorException}.
+ * This exception should be used to directly transfer messages to the {@link CommandActor},
+ * however should not be used in command-fail contexts. To signal an error to the
+ * actor, use {@link CommandErrorException}.
  */
 public class SendMessageException extends SendableException {
 
-  private final Object[] arguments;
+    private final Object[] arguments;
 
-  /**
-   * Constructs a new {@link SendMessageException} with an inferred actor
-   *
-   * @param message Message to send
-   */
-  public SendMessageException(String message, Object... arguments) {
-    super(message);
-    this.arguments = arguments;
-  }
+    /**
+     * Constructs a new {@link SendMessageException} that does not send any message.
+     * <p>
+     * Use this constructor if you would like to implement your own messaging
+     * system instead of relying on {@link CommandActor#reply(String)}.
+     */
+    public SendMessageException() {
+        super();
+        this.arguments = new Object[0];
+    }
 
-  /**
-   * Sends the message to the given actor
-   *
-   * @param actor Actor to send to
-   */
-  @Override
-  public void sendTo(@NotNull CommandActor actor) {
-    actor.replyLocalized(getMessage(), arguments);
-  }
+    /**
+     * Constructs a new {@link SendMessageException} with an inferred actor
+     *
+     * @param message Message to send
+     */
+    public SendMessageException(String message, Object... arguments) {
+        super(message);
+        this.arguments = arguments;
+    }
+
+    /**
+     * Sends the message to the given actor
+     *
+     * @param actor Actor to send to
+     */
+    @Override public void sendTo(@NotNull CommandActor actor) {
+        if (getMessage().isEmpty())
+            return;
+        actor.replyLocalized(getMessage(), arguments);
+    }
 }
