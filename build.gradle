@@ -27,7 +27,7 @@ subprojects {
     }
 
     dependencies {
-        compileOnly("com.github.Demeng7215.PluginBase:pluginbase-core:55864a536b")
+        compileOnly("com.github.demengc.PluginBase:pluginbase-core:48aa644860")
         compileOnly("org.jetbrains:annotations:24.1.0")
         compileOnly("org.projectlombok:lombok:1.18.32")
         annotationProcessor("org.projectlombok:lombok:1.18.32")
